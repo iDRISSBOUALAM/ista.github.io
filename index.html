@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emplois du Temps</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bleu:#1a56db; --bleu-fonce:#0f3a8f; --fond:#f3f6fb; --blanc:#fff;
+    --gris:#e5e9f0; --texte:#1f2937; --rouge:#dc2626; --vert:#059669;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:'Segoe UI',Arial,sans-serif; background:var(--fond); color:var(--texte);}
+  header{background:linear-gradient(135deg,var(--bleu),var(--bleu-fonce)); color:#fff; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;}
+  header h1{font-size:1.25rem;}
+  .badge{font-size:.78rem; background:rgba(255,255,255,.2); padding:4px 12px; border-radius:20px;}
+  nav{display:flex; gap:4px; background:var(--blanc); padding:8px 16px; border-bottom:2px solid var(--gris); flex-wrap:wrap;}
+  nav button{border:none; background:none; padding:10px 16px; cursor:pointer; font-size:.95rem; border-radius:8px 8px 0 0; color:#555;}
+  nav button.actif{background:var(--bleu); color:#fff; font-weight:600;}
+  nav button:hover:not(.actif){background:var(--gris);}
+  main{padding:20px; max-width:1300px; margin:0 auto;}
+  .carte{background:var(--blanc); border-radius:12px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08); margin-bottom:20px;}
+  h2{font-size:1.1rem; margin-bottom:14px; color:var(--bleu-fonce);}
+  label{display:block; font-size:.8rem; font-weight:600; margin-bottom:4px; color:#555;}
+  select,input{width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:8px; font-size:.92rem; background:#fff;}
+  textarea{width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:8px; font-family:monospace; font-size:.78rem; min-height:130px;}
+  .ligne{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;}
+  .ligne>div{flex:1; min-width:130px;}
+  .btn{background:var(--bleu); color:#fff; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-size:.92rem; font-weight:600;}
+  .btn:hover{background:var(--bleu-fonce);}
+  .btn-sec{background:var(--gris); color:var(--texte);}
+  .btn-sec:hover{background:#d3dae6;}
+  .msg{padding:12px 14px; border-radius:8px; margin:12px 0; font-size:.9rem; display:none;}
+  .msg.erreur{display:block; background:#fee2e2; color:#991b1b; border:1px solid #fca5a5;}
+  .msg.ok{display:block; background:#d1fae5; color:#065f46; border:1px solid #6ee7b7;}
+  table.edt{border-collapse:collapse; width:100%; table-layout:fixed;}
+  table.edt th, table.edt td{border:1px solid #cbd5e1; padding:4px; text-align:center; font-size:.78rem; height:52px; vertical-align:middle;}
+  table.edt th{background:var(--bleu-fonce); color:#fff; font-size:.8rem;}
+  table.edt td.heure{background:#eef2f8; font-weight:600; width:105px; font-size:.75rem;}
+  .seance{border-radius:6px; padding:3px 4px; line-height:1.25; position:relative; height:100%; display:flex; flex-direction:column; justify-content:center;}
+  .seance.suppr{cursor:pointer;}
+  .seance.suppr:hover::after{content:'✕ supprimer'; position:absolute; inset:0; background:rgba(220,38,38,.85); color:#fff; border-radius:6px; display:flex; align-items:center; justify-content:center; font-weight:600;}
+  .seance b{font-size:.78rem;}
+  .seance small{font-size:.68rem; opacity:.85;}
+  td.creneau{cursor:pointer;}
+  td.creneau:hover{background:#dbeafe;}
+  td.creneau.sel{background:var(--bleu); color:#fff; font-weight:700; font-size:1rem;}
+  td.indispo{background:#f1f5f9; color:#94a3b8; font-size:.65rem; line-height:1.3;}
+  ul.liste{list-style:none;}
+  ul.liste li{display:flex; justify-content:space-between; align-items:center; padding:7px 10px; border-bottom:1px solid var(--gris); font-size:.9rem;}
+  ul.liste li button{background:none; border:none; color:var(--rouge); cursor:pointer; font-size:1rem;}
+  .grille3{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px;}
+  .ajout{display:flex; gap:8px; margin-bottom:10px;}
+  .ecran{position:fixed; inset:0; background:var(--fond); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; overflow:auto;}
+  .ecran .carte{max-width:640px; width:100%;}
+  .ecran ol{margin:10px 0 14px 20px; font-size:.88rem; line-height:1.7;}
+  .choix-role{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:600px){.choix-role{grid-template-columns:1fr;}}
+  .role-box{border:2px solid var(--gris); border-radius:12px; padding:18px;}
+  .role-box h3{margin-bottom:12px; color:var(--bleu-fonce);}
+  @media print{
+    header,nav,.no-print,.ecran{display:none!important;}
+    body{background:#fff;}
+    main{padding:0; max-width:none;}
+    .carte{box-shadow:none; padding:0;}
+    .seance.suppr:hover::after{content:none;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ÉCRAN 1 : CONFIGURATION (première fois, par l'admin) -->
+<div class="ecran" id="ecranConfig" style="display:none;">
+  <div class="carte">
+    <h2>⚙️ Première installation (administrateur)</h2>
+    <p style="font-size:.9rem; margin-bottom:10px;">Pour partager le planning entre tous les formateurs, connectez une base <b>Firebase</b> (gratuite) :</p>
+    <ol>
+      <li>Allez sur <b>console.firebase.google.com</b> → « Ajouter un projet »</li>
+      <li>Dans le projet : <b>Créer → Realtime Database</b> → « Créer une base » → mode <b>test</b></li>
+      <li>Paramètres du projet ⚙️ → « Vos applications » → icône <b>Web &lt;/&gt;</b> → enregistrer l'application</li>
+      <li>Copiez le bloc <code>firebaseConfig</code> et collez-le ci-dessous</li>
+    </ol>
+    <textarea id="configTexte" placeholder='const firebaseConfig = {
+  apiKey: "...",
+  databaseURL: "https://....firebasedatabase.app",
+  ...
+};'></textarea>
+    <div class="msg erreur" id="msgConfig" style="display:none;"></div>
+    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button class="btn" onclick="connecterFirebase()">Se connecter</button>
+      <button class="btn btn-sec" onclick="modeLocal()">Mode local (essai sur cet ordinateur)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ÉCRAN 2 : CONNEXION -->
+<div class="ecran" id="ecranLogin" style="display:none;">
+  <div class="carte">
+    <h2 style="text-align:center;">📅 Emplois du Temps — Connexion</h2>
+    <div class="choix-role">
+      <div class="role-box">
+        <h3>👨‍🏫 Je suis formateur</h3>
+        <label>Mon nom</label>
+        <select id="loginFormateur"></select>
+        <button class="btn" style="width:100%; margin-top:12px;" onclick="entrerFormateur()">Entrer</button>
+        <p id="aideFormateur" style="font-size:.78rem; color:#888; margin-top:8px;"></p>
+      </div>
+      <div class="role-box">
+        <h3>🔑 Je suis administrateur</h3>
+        <label>Mot de passe</label>
+        <input type="password" id="loginMdp" onkeydown="if(event.key==='Enter')entrerAdmin()">
+        <button class="btn" style="width:100%; margin-top:12px;" onclick="entrerAdmin()">Entrer</button>
+        <p id="aideMdp" style="font-size:.78rem; color:#888; margin-top:8px;"></p>
+      </div>
+    </div>
+    <div class="msg erreur" id="msgLogin" style="display:none;"></div>
+  </div>
+</div>
+
+<header>
+  <h1>📅 Emplois du Temps</h1>
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <span class="badge" id="badgeUser">—</span>
+    <span class="badge" id="statutSync">—</span>
+    <button class="btn btn-sec no-print" style="padding:6px 12px;" onclick="window.print()">🖨️ Imprimer</button>
+    <button class="btn btn-sec no-print" style="padding:6px 12px;" onclick="seDeconnecter()">Déconnexion</button>
+  </div>
+</header>
+
+<nav id="menuNav"></nav>
+
+<main>
+
+  <!-- MON EMPLOI DU TEMPS -->
+  <section id="tab-monEdt">
+    <div class="carte no-print">
+      <h2>Ajouter une séance</h2>
+      <p style="font-size:.85rem; color:#555; margin-bottom:10px;">1️⃣ Choisissez le <b>groupe</b> et la <b>salle</b> — 2️⃣ Cliquez sur les <b>cases libres</b> du tableau — 3️⃣ Cliquez sur <b>Insérer</b>.</p>
+      <div class="ligne">
+        <div id="blocSelFormateur" style="display:none;"><label>Formateur</label><select id="selFormateur" onchange="viderSelection();render()"></select></div>
+        <div><label>Groupe</label><select id="selGroupe" onchange="render()"></select></div>
+        <div><label>Salle</label><select id="selSalle" onchange="render()"></select></div>
+        <div style="flex:0;"><button class="btn" onclick="ajouterSeance()">✅ Insérer la séance</button></div>
+        <div style="flex:0;"><button class="btn btn-sec" onclick="viderSelection();render()">Effacer la sélection</button></div>
+      </div>
+      <div class="msg" id="msgSeance"></div>
+    </div>
+    <div class="carte">
+      <h2 id="titreMonEdt">Mon emploi du temps</h2>
+      <div style="overflow-x:auto;"><div id="grilleFormateur"></div></div>
+      <p class="no-print" style="font-size:.75rem; color:#888; margin-top:8px;">🟦 case sélectionnée — « occupé » = salle ou groupe déjà pris — cliquez sur une de vos séances pour la supprimer.</p>
+    </div>
+  </section>
+
+  <!-- PAR SALLE -->
+  <section id="tab-vueSalle" style="display:none;">
+    <div class="carte">
+      <div class="ligne no-print" style="margin-bottom:14px;">
+        <div style="max-width:300px;"><label>Salle</label><select id="selVueSalle" onchange="render()"></select></div>
+      </div>
+      <h2 id="titreSalle">Occupation de la salle</h2>
+      <div style="overflow-x:auto;"><div id="grilleSalle"></div></div>
+    </div>
+  </section>
+
+  <!-- PAR GROUPE -->
+  <section id="tab-vueGroupe" style="display:none;">
+    <div class="carte">
+      <div class="ligne no-print" style="margin-bottom:14px;">
+        <div style="max-width:300px;"><label>Groupe</label><select id="selVueGroupe" onchange="render()"></select></div>
+      </div>
+      <h2 id="titreGroupe">Emploi du temps du groupe</h2>
+      <div style="overflow-x:auto;"><div id="grilleGroupe"></div></div>
+    </div>
+  </section>
+
+  <!-- GESTION (ADMIN) -->
+  <section id="tab-gestion" style="display:none;">
+    <div class="grille3">
+      <div class="carte">
+        <h2>👨‍🏫 Formateurs</h2>
+        <div class="ajout"><input type="text" id="inpFormateur" placeholder="Nom du formateur"><button class="btn" onclick="ajouterItem('formateurs','inpFormateur')">+</button></div>
+        <ul class="liste" id="listeFormateurs"></ul>
+      </div>
+      <div class="carte">
+        <h2>🚪 Salles</h2>
+        <div class="ajout"><input type="text" id="inpSalle" placeholder="Nom de la salle"><button class="btn" onclick="ajouterItem('salles','inpSalle')">+</button></div>
+        <ul class="liste" id="listeSalles"></ul>
+      </div>
+      <div class="carte">
+        <h2>👥 Groupes</h2>
+        <div class="ajout"><input type="text" id="inpGroupe" placeholder="Nom du groupe"><button class="btn" onclick="ajouterItem('groupes','inpGroupe')">+</button></div>
+        <ul class="liste" id="listeGroupes"></ul>
+      </div>
+      <div class="carte">
+        <h2>📥 Importer depuis Excel</h2>
+        <p style="font-size:.83rem; color:#555; margin-bottom:10px;">Remplissez un fichier Excel avec 3 colonnes : <b>Formateurs</b>, <b>Salles</b>, <b>Groupes</b> (un nom par ligne), puis importez-le. Les doublons sont ignorés.</p>
+        <button class="btn btn-sec" style="margin-bottom:10px;" onclick="telechargerModele()">⬇️ Télécharger le modèle Excel</button>
+        <label>Fichier Excel (.xlsx ou .csv)</label>
+        <input type="file" id="inpExcel" accept=".xlsx,.xls,.csv" onchange="importerExcel(event)">
+        <div class="msg" id="msgImport"></div>
+      </div>
+      <div class="carte">
+        <h2>🔑 Mot de passe administrateur</h2>
+        <label>Nouveau mot de passe</label>
+        <input type="password" id="inpMdp" placeholder="Nouveau mot de passe">
+        <button class="btn" style="margin-top:10px;" onclick="changerMdp()">Changer</button>
+        <div class="msg" id="msgMdp"></div>
+        <hr style="margin:16px 0; border:none; border-top:1px solid var(--gris);">
+        <button class="btn btn-sec" onclick="changerBase()">Changer de base de données</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ================== CONSTANTES ==================
+const JOURS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+const NB_HEURES = 10; // 8h30 -> 18h30
+const heureLabel = h => `${8+h}h30 - ${9+h}h30`;
+const COULEURS = ['#dbeafe','#dcfce7','#fef3c7','#fce7f3','#e0e7ff','#ccfbf1','#fee2e2','#f3e8ff','#ffedd5','#d1fae5'];
+const MDP_DEFAUT = 'admin';
+
+// ================== ÉTAT ==================
+let state = {formateurs:{}, salles:{}, groupes:{}, seances:{}, config:{}};
+let backend = null;
+let session = null; // {role:'admin'} ou {role:'formateur', id:'...'}
+
+// ================== BACKEND ==================
+function apresChargement(){
+  const s = sessionStorage.getItem('edt-session');
+  if(s){ try{ session = JSON.parse(s); }catch(e){} }
+  if(session && session.role === 'formateur' && !(state.formateurs||{})[session.id]) session = null;
+  majEcrans();
+  render();
+}
+
+function demarrerAvecFirebase(config){
+  firebase.initializeApp(config);
+  const ref = firebase.database().ref('edt');
+  ref.on('value', snap => {
+    state = Object.assign({formateurs:{},salles:{},groupes:{},seances:{},config:{}}, snap.val()||{});
+    apresChargement();
+  }, err => { document.getElementById('statutSync').textContent = '⚠️ ' + err.message; });
+  backend = {
+    add: (chemin, obj) => ref.child(chemin).push(obj),
+    del: (chemin, id) => ref.child(chemin).child(id).remove(),
+    set: (chemin, val) => ref.child(chemin).set(val)
+  };
+  document.getElementById('statutSync').textContent = '🟢 En ligne';
+  document.getElementById('ecranConfig').style.display = 'none';
+  initSelects();
+}
+
+function demarrerLocal(){
+  const sauver = () => localStorage.setItem('edt-donnees', JSON.stringify(state));
+  try { state = Object.assign({formateurs:{},salles:{},groupes:{},seances:{},config:{}}, JSON.parse(localStorage.getItem('edt-donnees')||'{}')); } catch(e){}
+  backend = {
+    add: (chemin, obj) => { state[chemin]['id'+Date.now()+Math.floor(Math.random()*1000)] = obj; sauver(); apresChargement(); },
+    del: (chemin, id) => { delete state[chemin][id]; sauver(); apresChargement(); },
+    set: (chemin, val) => { state[chemin] = val; sauver(); apresChargement(); }
+  };
+  document.getElementById('statutSync').textContent = '🟡 Mode local';
+  document.getElementById('ecranConfig').style.display = 'none';
+  initSelects();
+  apresChargement();
+}
+
+function connecterFirebase(){
+  const txt = document.getElementById('configTexte').value;
+  const m = txt.match(/\{[\s\S]*\}/);
+  const msg = document.getElementById('msgConfig');
+  if(!m){ msg.style.display='block'; msg.textContent = 'Configuration invalide : collez le bloc { ... } complet.'; return; }
+  let config;
+  try { config = (new Function('return ' + m[0]))(); } catch(e){ msg.style.display='block'; msg.textContent = 'Impossible de lire la configuration : ' + e.message; return; }
+  if(!config.databaseURL){
+    msg.style.display='block';
+    msg.textContent = 'Il manque "databaseURL". Dans Firebase : Realtime Database → copiez l\'URL (https://...firebasedatabase.app) et ajoutez la ligne databaseURL: "..." dans le bloc.';
+    return;
+  }
+  localStorage.setItem('edt-config', JSON.stringify(config));
+  demarrerAvecFirebase(config);
+}
+
+function modeLocal(){ localStorage.setItem('edt-config', 'LOCAL'); demarrerLocal(); }
+function changerBase(){ if(confirm('Changer de base de données ? (les données restent dans Firebase)')){ localStorage.removeItem('edt-config'); sessionStorage.clear(); location.reload(); } }
+
+// Démarrage
+(function(){
+  const c = localStorage.getItem('edt-config');
+  if(c === 'LOCAL') demarrerLocal();
+  else if(c){ try { demarrerAvecFirebase(JSON.parse(c)); } catch(e){ localStorage.removeItem('edt-config'); document.getElementById('ecranConfig').style.display='flex'; } }
+  else document.getElementById('ecranConfig').style.display = 'flex';
+})();
+
+// ================== CONNEXION / RÔLES ==================
+function mdpAdmin(){ return (state.config && state.config.mdp) ? state.config.mdp : MDP_DEFAUT; }
+
+function majEcrans(){
+  const login = document.getElementById('ecranLogin');
+  if(!backend){ login.style.display='none'; return; }
+  if(!session){
+    login.style.display = 'flex';
+    // liste des formateurs pour la connexion
+    const sel = document.getElementById('loginFormateur');
+    const avant = sel.value;
+    const entrees = Object.entries(state.formateurs||{}).sort((a,b)=>a[1].nom.localeCompare(b[1].nom));
+    sel.innerHTML = entrees.map(([id,v])=>`<option value="${id}">${echap(v.nom)}</option>`).join('');
+    if(avant) sel.value = avant;
+    document.getElementById('aideFormateur').textContent = entrees.length ? '' : 'Aucun formateur : l\'administrateur doit d\'abord les créer.';
+    document.getElementById('aideMdp').textContent = (state.config && state.config.mdp) ? '' : 'Mot de passe par défaut : admin';
+  } else {
+    login.style.display = 'none';
+    construireMenu();
+    document.getElementById('badgeUser').textContent = session.role === 'admin' ? '🔑 Administrateur' : '👨‍🏫 ' + nomDe('formateurs', session.id);
+    document.getElementById('blocSelFormateur').style.display = session.role === 'admin' ? '' : 'none';
+    document.getElementById('tab-gestion').dataset.autorise = session.role === 'admin' ? '1' : '';
+  }
+}
+
+function entrerFormateur(){
+  const id = document.getElementById('loginFormateur').value;
+  const msg = document.getElementById('msgLogin');
+  if(!id){ msg.style.display='block'; msg.textContent='Aucun formateur disponible. L\'administrateur doit les créer d\'abord.'; return; }
+  msg.style.display='none';
+  session = {role:'formateur', id};
+  sessionStorage.setItem('edt-session', JSON.stringify(session));
+  majEcrans(); montrerTabParDefaut(); render();
+}
+
+function entrerAdmin(){
+  const mdp = document.getElementById('loginMdp').value;
+  const msg = document.getElementById('msgLogin');
+  if(mdp !== mdpAdmin()){ msg.style.display='block'; msg.textContent='Mot de passe incorrect.'; return; }
+  msg.style.display='none';
+  document.getElementById('loginMdp').value = '';
+  session = {role:'admin'};
+  sessionStorage.setItem('edt-session', JSON.stringify(session));
+  majEcrans(); montrerTabParDefaut(); render();
+}
+
+function seDeconnecter(){
+  session = null;
+  sessionStorage.removeItem('edt-session');
+  majEcrans();
+}
+
+function changerMdp(){
+  const inp = document.getElementById('inpMdp');
+  const msg = document.getElementById('msgMdp');
+  if(inp.value.trim().length < 4){ msg.className='msg erreur'; msg.textContent='Minimum 4 caractères.'; return; }
+  backend.set('config', {mdp: inp.value.trim()});
+  inp.value='';
+  msg.className='msg ok'; msg.textContent='✅ Mot de passe changé.';
+}
+
+// ================== MENU ==================
+function construireMenu(){
+  const nav = document.getElementById('menuNav');
+  let tabs = [['monEdt','Mon emploi du temps'],['vueSalle','Par salle'],['vueGroupe','Par groupe']];
+  if(session && session.role === 'admin') tabs = [['monEdt','Plannings'],['vueSalle','Par salle'],['vueGroupe','Par groupe'],['gestion','⚙️ Gestion']];
+  const actif = document.querySelector('main > section:not([style*="none"])');
+  nav.innerHTML = tabs.map(([id,titre],i)=>`<button data-tab="${id}" onclick="montrerTab('${id}',this)">${titre}</button>`).join('');
+}
+
+function montrerTabParDefaut(){
+  const premier = document.querySelector('#menuNav button');
+  if(premier) montrerTab(premier.dataset.tab, premier);
+}
+
+function montrerTab(nom, btn){
+  if(nom === 'gestion' && (!session || session.role !== 'admin')) return;
+  document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
+  document.getElementById('tab-' + nom).style.display = '';
+  document.querySelectorAll('#menuNav button').forEach(b => b.classList.remove('actif'));
+  if(btn) btn.classList.add('actif');
+  render();
+}
+
+// ================== SÉLECTEURS ==================
+function initSelects(){}
+
+function majSelect(idSel, objet){
+  const sel = document.getElementById(idSel);
+  const avant = sel.value;
+  const entrees = Object.entries(objet||{}).sort((a,b)=>a[1].nom.localeCompare(b[1].nom));
+  sel.innerHTML = entrees.map(([id,v])=>`<option value="${id}">${echap(v.nom)}</option>`).join('');
+  if(avant && objet && objet[avant]) sel.value = avant;
+}
+
+function echap(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function nomDe(chemin, id){ return (state[chemin] && state[chemin][id]) ? state[chemin][id].nom : '?'; }
+
+// ================== GESTION (ADMIN) ==================
+function ajouterItem(chemin, idInput){
+  if(session.role !== 'admin') return;
+  const inp = document.getElementById(idInput);
+  const nom = inp.value.trim();
+  if(!nom) return;
+  if(Object.values(state[chemin]||{}).some(v => v.nom.toLowerCase() === nom.toLowerCase())){ alert('« ' + nom + ' » existe déjà.'); return; }
+  backend.add(chemin, {nom});
+  inp.value = '';
+}
+
+function supprimerItem(chemin, id){
+  if(session.role !== 'admin') return;
+  const utilise = Object.values(state.seances||{}).some(s =>
+    (chemin==='formateurs' && s.f===id) || (chemin==='salles' && s.s===id) || (chemin==='groupes' && s.g===id));
+  if(utilise){ alert('Impossible : des séances utilisent cet élément. Supprimez d\'abord les séances.'); return; }
+  if(confirm('Supprimer ?')) backend.del(chemin, id);
+}
+
+function renderListe(chemin, idUl){
+  const ul = document.getElementById(idUl);
+  const entrees = Object.entries(state[chemin]||{}).sort((a,b)=>a[1].nom.localeCompare(b[1].nom));
+  ul.innerHTML = entrees.map(([id,v])=>`<li><span>${echap(v.nom)}</span><button onclick="supprimerItem('${chemin}','${id}')" title="Supprimer">🗑️</button></li>`).join('')
+    || '<li style="color:#999;">Aucun élément</li>';
+}
+
+// ================== IMPORT EXCEL (ADMIN) ==================
+function telechargerModele(){
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['Formateurs','Salles','Groupes'],
+    ['AHMED ALAMI','Salle 1','GE101'],
+    ['FATIMA BENANI','Salle 2','GE102'],
+    ['','Salle Info','TSGE201']
+  ]);
+  ws['!cols'] = [{wch:25},{wch:15},{wch:15}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Listes');
+  XLSX.writeFile(wb, 'modele-listes.xlsx');
+}
+
+function importerExcel(ev){
+  if(session.role !== 'admin') return;
+  const fichier = ev.target.files[0];
+  if(!fichier) return;
+  const msg = document.getElementById('msgImport');
+  const lecteur = new FileReader();
+  lecteur.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      const compteur = {formateurs:0, salles:0, groupes:0};
+      // noms déjà existants (pour ignorer les doublons, y compris dans le fichier)
+      const dejaVu = {formateurs:new Set(), salles:new Set(), groupes:new Set()};
+      for(const chemin of ['formateurs','salles','groupes'])
+        Object.values(state[chemin]||{}).forEach(v => dejaVu[chemin].add(v.nom.toLowerCase()));
+      const typeCol = t => {
+        const n = String(t||'').toLowerCase();
+        if(n.includes('format')) return 'formateurs';
+        if(n.includes('salle')) return 'salles';
+        if(n.includes('group')) return 'groupes';
+        return null;
+      };
+      const ajouterNom = (chemin, val) => {
+        const nom = String(val).trim();
+        if(!nom || dejaVu[chemin].has(nom.toLowerCase())) return;
+        dejaVu[chemin].add(nom.toLowerCase());
+        backend.add(chemin, {nom});
+        compteur[chemin]++;
+      };
+      wb.SheetNames.forEach(nomFeuille => {
+        const lignes = XLSX.utils.sheet_to_json(wb.Sheets[nomFeuille], {header:1});
+        if(!lignes.length) return;
+        const entetes = (lignes[0]||[]).map(typeCol);
+        if(entetes.some(x => x)){
+          for(let i=1; i<lignes.length; i++)
+            (lignes[i]||[]).forEach((val, ci) => { if(entetes[ci] && val !== undefined && val !== '') ajouterNom(entetes[ci], val); });
+        } else {
+          const cheminFeuille = typeCol(nomFeuille);
+          if(cheminFeuille) lignes.flat().forEach(val => { if(val !== undefined && val !== '') ajouterNom(cheminFeuille, val); });
+        }
+      });
+      const total = compteur.formateurs + compteur.salles + compteur.groupes;
+      if(total === 0){
+        msg.className = 'msg erreur';
+        msg.textContent = 'Rien à importer. Vérifiez que la première ligne contient les titres « Formateurs », « Salles », « Groupes » (ou que tout existe déjà).';
+      } else {
+        msg.className = 'msg ok';
+        msg.textContent = `✅ Importé : ${compteur.formateurs} formateur(s), ${compteur.salles} salle(s), ${compteur.groupes} groupe(s).`;
+      }
+    } catch(err){
+      msg.className = 'msg erreur';
+      msg.textContent = 'Erreur de lecture du fichier : ' + err.message;
+    }
+    ev.target.value = '';
+  };
+  lecteur.readAsArrayBuffer(fichier);
+}
+
+// ================== SÉANCES & CONFLITS ==================
+function verifierConflits(jour, heures, fId, gId, sId){
+  const conflits = [];
+  for(const s of Object.values(state.seances||{})){
+    if(s.j !== jour || !heures.includes(s.h)) continue;
+    const quand = `${JOURS[s.j]} ${heureLabel(s.h)}`;
+    if(s.f === fId) conflits.push(`⛔ Le formateur « ${nomDe('formateurs',s.f)} » a déjà une séance ${quand} (groupe ${nomDe('groupes',s.g)}, salle ${nomDe('salles',s.s)}).`);
+    if(s.s === sId) conflits.push(`⛔ La salle « ${nomDe('salles',s.s)} » est déjà occupée ${quand} par ${nomDe('formateurs',s.f)} (groupe ${nomDe('groupes',s.g)}).`);
+    if(s.g === gId) conflits.push(`⛔ Le groupe « ${nomDe('groupes',s.g)} » a déjà cours ${quand} avec ${nomDe('formateurs',s.f)} (salle ${nomDe('salles',s.s)}).`);
+  }
+  return conflits;
+}
+
+function formateurActuel(){
+  return session.role === 'admin' ? document.getElementById('selFormateur').value : session.id;
+}
+
+// ---- Sélection de cases dans le tableau ----
+let selection = new Set();
+function viderSelection(){ selection.clear(); }
+function toggleCreneau(j, h){
+  const cle = j + '-' + h;
+  if(selection.has(cle)) selection.delete(cle); else selection.add(cle);
+  render();
+}
+
+function ajouterSeance(){
+  const msg = document.getElementById('msgSeance');
+  msg.className = 'msg';
+  const fId = formateurActuel();
+  const gId = document.getElementById('selGroupe').value;
+  const sId = document.getElementById('selSalle').value;
+  if(!fId || !gId || !sId){ msg.className='msg erreur'; msg.textContent='Il manque des données : l\'administrateur doit créer les formateurs, groupes et salles.'; return; }
+  if(selection.size === 0){ msg.className='msg erreur'; msg.textContent='Cliquez d\'abord sur une ou plusieurs cases libres du tableau ci-dessous.'; return; }
+  const conflits = [];
+  for(const cle of selection){
+    const [j,h] = cle.split('-').map(Number);
+    conflits.push(...verifierConflits(j, [h], fId, gId, sId));
+  }
+  if(conflits.length){ msg.className='msg erreur'; msg.innerHTML = conflits.map(echap).join('<br>'); return; }
+  const n = selection.size;
+  for(const cle of selection){
+    const [j,h] = cle.split('-').map(Number);
+    backend.add('seances', {f:fId, g:gId, s:sId, j, h});
+  }
+  selection.clear();
+  msg.className='msg ok';
+  msg.textContent = `✅ ${n} heure(s) de séance insérée(s) pour le groupe ${nomDe('groupes',gId)} en salle ${nomDe('salles',sId)}.`;
+}
+
+function peutSupprimer(s){
+  return session.role === 'admin' || s.f === session.id;
+}
+
+function supprimerSeance(id){
+  const s = state.seances[id];
+  if(!s || !peutSupprimer(s)) return;
+  if(confirm(`Supprimer la séance ${JOURS[s.j]} ${heureLabel(s.h)} (${nomDe('formateurs',s.f)} / ${nomDe('groupes',s.g)} / ${nomDe('salles',s.s)}) ?`))
+    backend.del('seances', id);
+}
+
+// ================== GRILLES ==================
+function couleurFormateur(fId){
+  const ids = Object.keys(state.formateurs||{}).sort();
+  return COULEURS[Math.max(0, ids.indexOf(fId)) % COULEURS.length];
+}
+
+function renderGrille(conteneurId, filtre, contenuCellule){
+  const cellules = {};
+  for(const [id,s] of Object.entries(state.seances||{})){
+    if(filtre(s)) cellules[`${s.j}-${s.h}`] = {id, s};
+  }
+  let html = '<table class="edt"><tr><th>Horaire</th>' + JOURS.map(j=>`<th>${j}</th>`).join('') + '</tr>';
+  for(let h=0; h<NB_HEURES; h++){
+    html += `<tr><td class="heure">${heureLabel(h)}</td>`;
+    for(let j=0; j<JOURS.length; j++){
+      const c = cellules[`${j}-${h}`];
+      if(c){
+        const cliquable = peutSupprimer(c.s);
+        html += `<td><div class="seance${cliquable?' suppr':''}" style="background:${couleurFormateur(c.s.f)}"${cliquable?` onclick="supprimerSeance('${c.id}')"`:''}>${contenuCellule(c.s)}</div></td>`;
+      } else html += '<td></td>';
+    }
+    html += '</tr>';
+  }
+  document.getElementById(conteneurId).innerHTML = html + '</table>';
+}
+
+// Raisons courtes d'indisponibilité d'une case libre
+function conflitsCellule(j, h, fId, gId, sId){
+  const raisons = new Set();
+  for(const s of Object.values(state.seances||{})){
+    if(s.j !== j || s.h !== h || s.f === fId) continue;
+    if(s.s === sId) raisons.add('Salle occupée');
+    if(s.g === gId) raisons.add('Groupe occupé');
+  }
+  return [...raisons];
+}
+
+// Grille interactive "Mon emploi du temps" : cases libres cliquables
+function renderMonEdt(fId, gId, sId){
+  const cellules = {};
+  for(const [id,s] of Object.entries(state.seances||{})){
+    if(s.f === fId) cellules[`${s.j}-${s.h}`] = {id, s};
+  }
+  // retirer de la sélection les cases devenues invalides
+  for(const cle of [...selection]){
+    const [j,h] = cle.split('-').map(Number);
+    if(cellules[cle] || conflitsCellule(j,h,fId,gId,sId).length) selection.delete(cle);
+  }
+  let html = '<table class="edt"><tr><th>Horaire</th>' + JOURS.map(j=>`<th>${j}</th>`).join('') + '</tr>';
+  for(let h=0; h<NB_HEURES; h++){
+    html += `<tr><td class="heure">${heureLabel(h)}</td>`;
+    for(let j=0; j<JOURS.length; j++){
+      const cle = `${j}-${h}`;
+      const c = cellules[cle];
+      if(c){
+        const cliquable = peutSupprimer(c.s);
+        html += `<td><div class="seance${cliquable?' suppr':''}" style="background:${couleurFormateur(c.s.f)}"${cliquable?` onclick="supprimerSeance('${c.id}')"`:''}><b>${echap(nomDe('groupes',c.s.g))}</b><small>Salle ${echap(nomDe('salles',c.s.s))}</small></div></td>`;
+      } else {
+        const raisons = conflitsCellule(j,h,fId,gId,sId);
+        if(raisons.length) html += `<td class="indispo">${raisons.join('<br>')}</td>`;
+        else html += `<td class="creneau${selection.has(cle)?' sel':''}" onclick="toggleCreneau(${j},${h})">${selection.has(cle)?'✓':''}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+  document.getElementById('grilleFormateur').innerHTML = html + '</table>';
+}
+
+// ================== RENDU GLOBAL ==================
+function render(){
+  if(!backend || !session) return;
+  majSelect('selFormateur', state.formateurs);
+  majSelect('selGroupe', state.groupes);
+  majSelect('selSalle', state.salles);
+  majSelect('selVueSalle', state.salles);
+  majSelect('selVueGroupe', state.groupes);
+  if(session.role === 'admin'){
+    renderListe('formateurs','listeFormateurs');
+    renderListe('salles','listeSalles');
+    renderListe('groupes','listeGroupes');
+  }
+
+  const fId = formateurActuel();
+  document.getElementById('titreMonEdt').textContent = fId ? `Emploi du temps — ${nomDe('formateurs',fId)}` : 'Emploi du temps';
+  renderMonEdt(fId, document.getElementById('selGroupe').value, document.getElementById('selSalle').value);
+
+  const sId = document.getElementById('selVueSalle').value;
+  document.getElementById('titreSalle').textContent = sId ? `Occupation — Salle ${nomDe('salles',sId)}` : 'Occupation de la salle';
+  renderGrille('grilleSalle', s => s.s === sId,
+    s => `<b>${echap(nomDe('formateurs',s.f))}</b><small>${echap(nomDe('groupes',s.g))}</small>`);
+
+  const gId = document.getElementById('selVueGroupe').value;
+  document.getElementById('titreGroupe').textContent = gId ? `Emploi du temps — Groupe ${nomDe('groupes',gId)}` : 'Emploi du temps du groupe';
+  renderGrille('grilleGroupe', s => s.g === gId,
+    s => `<b>${echap(nomDe('formateurs',s.f))}</b><small>Salle ${echap(nomDe('salles',s.s))}</small>`);
+}
+</script>
+</body>
+</html>
